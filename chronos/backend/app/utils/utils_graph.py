@@ -125,18 +125,17 @@ async def execute_query_with_retry(
                 raise ConnectionError("No Neo4j driver available")
             async with db_driver.session() as session:
                 result = await session.run(query, parameters or {})
-                return result
-
+                # ✅ Fully consume result before session closes
+                records = await result.list()  # ← This consumes it
+                return records
         except Exception as e:
             logger.warning(f"⚠️ Query execution attempt {attempt} failed: {str(e)}")
             await close_driver()
-
             if attempt < max_retries:
                 await asyncio.sleep(0.5 * attempt)
             else:
                 logger.error(f"❌ Query failed after {max_retries} attempts: {str(e)}")
                 raise
-
 
 # === Node Creation & Retrieval Functions ===
 
@@ -158,11 +157,11 @@ async def create_historical_observation(text: str, source_id: str) -> str:
             "source_id": source_id
         })
         record = await result.single()
-        if record:
-            logger.info(f"✅ Created historical observation node: {node_id}")
-            return record["id"]
-        else:
+        if not record:
             raise Exception("No ID returned from Neo4j")
+        returned_id = record["id"]
+        logger.info(f"✅ Created historical observation node: {returned_id}")
+        return returned_id
     except Exception as e:
         logger.error(f"❌ Error creating historical observation: {str(e)}")
         raise
@@ -186,6 +185,7 @@ async def create_modern_study(article: Article) -> str:
     RETURN m.id as id
     """
     try:
+        # Execute and fetch immediately
         result = await execute_query_with_retry(query, {
             "id": node_id,
             "pmid": article.pmid,
@@ -198,11 +198,11 @@ async def create_modern_study(article: Article) -> str:
             "keywords": article.keywords
         })
         record = await result.single()
-        if record:
-            logger.info(f"✅ Created modern study node: {node_id}")
-            return record["id"]
-        else:
+        if not record:
             raise Exception("No ID returned from Neo4j")
+        returned_id = record["id"]  # ✅ Extract data before result is gone
+        logger.info(f"✅ Created modern study node: {returned_id}")
+        return returned_id
     except Exception as e:
         logger.error(f"❌ Error creating modern study: {str(e)}")
         raise
@@ -215,13 +215,14 @@ async def get_node_by_id(node_id: str) -> Optional[Dict[str, Any]]:
     RETURN n
     """
     try:
-        result = await execute_query_with_retry(query, {"id": node_id})
-        record = await result.single()
-        if not record:
+        records = await execute_query_with_retry(query, {"id": node_id})
+        if not records:
             logger.warning(f"🔍 Node not found: {node_id}")
             return None
-        node = record["n"]
+
+        node = records[0]["n"]
         return dict(node.items())
+
     except Exception as e:
         logger.error(f"❌ Error retrieving node {node_id}: {str(e)}")
         raise
