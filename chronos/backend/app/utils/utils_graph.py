@@ -22,7 +22,6 @@ if not os.getenv("RENDER"):
     load_dotenv()  # Skip in Render (uses dashboard env vars)
 
 # === Neo4j Configuration ===
-# These must be set in Render dashboard for production
 NEO4J_URI = os.getenv("NEO4J_URI")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
@@ -32,19 +31,19 @@ if not NEO4J_URI:
 if not NEO4J_PASSWORD:
     logger.error("❌ NEO4J_PASSWORD is not set. Set it in environment.")
 
-# Global driver instance
-
+# Global driver instance is managed via global keyword in functions
+# Do NOT declare driver = None here
 
 
 async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
     """
     Get Neo4j driver with retry logic and secure connection support.
-    Uses environment variables for connection details.
     """
-    global driver
+    global driver  # ✅ Must be first line using 'driver'
+    driver = None  # Initialize if not exists
 
-    # Avoid reusing broken driver
-    if driver is not None:
+    # Reuse healthy driver
+    if 'driver' in globals() and driver is not None:
         try:
             async with driver.session() as session:
                 await session.run("RETURN 1")
@@ -56,7 +55,6 @@ async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
 
     for attempt in range(1, max_retries + 1):
         try:
-            # Validate config
             if not NEO4J_URI:
                 raise ValueError("NEO4J_URI is not set")
             if not NEO4J_PASSWORD:
@@ -64,18 +62,16 @@ async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
 
             logger.info(f"🔌 Attempting Neo4j connection to {NEO4J_URI} (attempt {attempt})")
 
-            # Create driver with secure settings for AuraDB
             driver = AsyncGraphDatabase.driver(
                 NEO4J_URI,
                 auth=(NEO4J_USER, NEO4J_PASSWORD),
-                encrypted=True,              # Required for AuraDB
-                trust=None,                  # Accept valid TLS certs
-                connection_timeout=10,       # seconds
+                encrypted=True,
+                trust=None,
+                connection_timeout=10,
                 max_connection_lifetime=3600,
                 max_connection_pool_size=10,
             )
 
-            # Test connection
             async with driver.session() as session:
                 await session.run("RETURN 1")
 
@@ -84,25 +80,17 @@ async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
 
         except Exception as e:
             logger.warning(f"⚠️ Neo4j connection attempt {attempt} failed: {str(e)}")
-
-            # Clean up failed driver
-            if driver is not None:
-                try:
-                    await driver.close()
-                except:
-                    pass
-                finally:
-                    driver = None
+            await close_driver()
 
             if attempt < max_retries:
-                backoff = retry_delay * (2 ** (attempt - 1))  # Exponential backoff
+                backoff = retry_delay * (2 ** (attempt - 1))
                 logger.info(f"🔁 Retrying in {backoff:.1f}s...")
                 await asyncio.sleep(backoff)
             else:
                 logger.error(f"❌ Failed to connect to Neo4j after {max_retries} attempts")
-                raise ConnectionError(f"Could not connect to Neo4j: {e}") from e
+                return None  # Don't crash app
 
-    return driver
+    return None
 
 
 async def get_driver():
@@ -117,7 +105,7 @@ async def close_driver():
     Close the global driver instance safely
     """
     global driver
-    if driver is not None:
+    if 'driver' in globals() and driver is not None:
         try:
             await driver.close()
             logger.info("🛑 Neo4j driver closed")
@@ -138,22 +126,15 @@ async def execute_query_with_retry(
     for attempt in range(1, max_retries + 1):
         try:
             db_driver = await get_driver_with_retry()
+            if db_driver is None:
+                raise ConnectionError("No Neo4j driver available")
             async with db_driver.session() as session:
                 result = await session.run(query, parameters or {})
                 return result
 
         except Exception as e:
             logger.warning(f"⚠️ Query execution attempt {attempt} failed: {str(e)}")
-
-            # Force reconnect on next try
-            if driver is not None:
-                try:
-                    await driver.close()
-                except:
-                    pass
-                finally:
-                    global driver
-                    driver = None
+            await close_driver()
 
             if attempt < max_retries:
                 await asyncio.sleep(0.5 * attempt)
@@ -165,6 +146,9 @@ async def execute_query_with_retry(
 # === Node Creation & Retrieval Functions ===
 
 async def create_historical_observation(text: str, source_id: str) -> str:
+    """
+    Create a historical observation node in Neo4j
+    """
     node_id = f"hist-{uuid.uuid4()}"
     query = """
     CREATE (h:HistoricalObservation {
@@ -182,14 +166,20 @@ async def create_historical_observation(text: str, source_id: str) -> str:
             "source_id": source_id
         })
         record = await result.single()
-        logger.info(f"✅ Created historical observation node: {node_id}")
-        return record["id"]
+        if record:
+            logger.info(f"✅ Created historical observation node: {node_id}")
+            return record["id"]
+        else:
+            raise Exception("No ID returned from Neo4j")
     except Exception as e:
         logger.error(f"❌ Error creating historical observation: {str(e)}")
         raise
 
 
 async def create_modern_study(article: Article) -> str:
+    """
+    Create a modern study node in Neo4j from an Article model
+    """
     node_id = f"mod-{uuid.uuid4()}"
     query = """
     CREATE (m:ModernStudy {
@@ -219,14 +209,20 @@ async def create_modern_study(article: Article) -> str:
             "keywords": article.keywords
         })
         record = await result.single()
-        logger.info(f"✅ Created modern study node: {node_id}")
-        return record["id"]
+        if record:
+            logger.info(f"✅ Created modern study node: {node_id}")
+            return record["id"]
+        else:
+            raise Exception("No ID returned from Neo4j")
     except Exception as e:
         logger.error(f"❌ Error creating modern study: {str(e)}")
         raise
 
 
 async def get_node_by_id(node_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve a node from Neo4j by its ID
+    """
     query = """
     MATCH (n)
     WHERE n.id = $id
@@ -246,6 +242,9 @@ async def get_node_by_id(node_id: str) -> Optional[Dict[str, Any]]:
 
 
 async def create_hypothesis_connection(hist_id: str, mod_id: str, hypothesis: str) -> str:
+    """
+    Create a relationship between historical observation and modern study
+    """
     rel_id = f"hyp-{uuid.uuid4()}"
     query = """
     MATCH (h:HistoricalObservation), (m:ModernStudy)
@@ -265,8 +264,11 @@ async def create_hypothesis_connection(hist_id: str, mod_id: str, hypothesis: st
             "hypothesis": hypothesis
         })
         record = await result.single()
-        logger.info(f"✅ Created hypothesis connection: {rel_id}")
-        return record["id"]
+        if record:
+            logger.info(f"✅ Created hypothesis connection: {rel_id}")
+            return record["id"]
+        else:
+            raise Exception("No ID returned from Neo4j")
     except Exception as e:
         logger.error(f"❌ Error creating hypothesis connection: {str(e)}")
         raise
