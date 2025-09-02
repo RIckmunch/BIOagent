@@ -26,7 +26,7 @@ NEO4J_URI = os.getenv("NEO4J_URI")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 
-logger.info(f"🌍 NEO4J_URI = {NEO4J_URI}")  # 🔥 Add this line
+logger.info(f"🌍 NEO4J_URI = {NEO4J_URI}")
 logger.info(f"👤 NEO4J_USER = {NEO4J_USER}")
 logger.info(f"🔑 NEO4J_PASSWORD is set = {bool(NEO4J_PASSWORD)}")
 
@@ -35,16 +35,15 @@ if not NEO4J_URI:
 if not NEO4J_PASSWORD:
     logger.error("❌ NEO4J_PASSWORD is not set. Set it in environment.")
 
-# Global driver instance is managed via global keyword in functions
+
+# Global driver instance
 # Do NOT declare driver = None here
-
-
 async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
     """
     Get Neo4j driver with retry logic and secure connection support.
     """
-    global driver  # ✅ Must be first line using 'driver'
-    driver = None  # Initialize if not exists
+    global driver
+    driver = None  # Initialize
 
     # Reuse healthy driver
     if 'driver' in globals() and driver is not None:
@@ -66,10 +65,10 @@ async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
 
             logger.info(f"🔌 Attempting Neo4j connection to {NEO4J_URI} (attempt {attempt})")
 
+            # ✅ CRITICAL FIX: Remove `trust` and `encrypted` when using neo4j+s://
             driver = AsyncGraphDatabase.driver(
                 NEO4J_URI,
                 auth=(NEO4J_USER, NEO4J_PASSWORD),
-                trust="TRUST_ALL_CERTIFICATES",
                 connection_timeout=10,
                 max_connection_lifetime=3600,
                 max_connection_pool_size=10,
@@ -91,22 +90,18 @@ async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
                 await asyncio.sleep(backoff)
             else:
                 logger.error(f"❌ Failed to connect to Neo4j after {max_retries} attempts")
-                return None  # Don't crash app
+                return None
 
     return None
 
 
 async def get_driver():
-    """
-    Backward compatibility wrapper
-    """
+    """Backward compatibility wrapper"""
     return await get_driver_with_retry()
 
 
 async def close_driver():
-    """
-    Close the global driver instance safely
-    """
+    """Close the global driver instance safely"""
     global driver
     if 'driver' in globals() and driver is not None:
         try:
@@ -123,9 +118,7 @@ async def execute_query_with_retry(
     parameters: Dict[str, Any] = None,
     max_retries: int = 3
 ):
-    """
-    Execute a Neo4j query with retry logic and automatic reconnection
-    """
+    """Execute a Neo4j query with retry logic and automatic reconnection"""
     for attempt in range(1, max_retries + 1):
         try:
             db_driver = await get_driver_with_retry()
@@ -149,9 +142,6 @@ async def execute_query_with_retry(
 # === Node Creation & Retrieval Functions ===
 
 async def create_historical_observation(text: str, source_id: str) -> str:
-    """
-    Create a historical observation node in Neo4j
-    """
     node_id = f"hist-{uuid.uuid4()}"
     query = """
     CREATE (h:HistoricalObservation {
@@ -180,9 +170,6 @@ async def create_historical_observation(text: str, source_id: str) -> str:
 
 
 async def create_modern_study(article: Article) -> str:
-    """
-    Create a modern study node in Neo4j from an Article model
-    """
     node_id = f"mod-{uuid.uuid4()}"
     query = """
     CREATE (m:ModernStudy {
@@ -223,9 +210,6 @@ async def create_modern_study(article: Article) -> str:
 
 
 async def get_node_by_id(node_id: str) -> Optional[Dict[str, Any]]:
-    """
-    Retrieve a node from Neo4j by its ID
-    """
     query = """
     MATCH (n)
     WHERE n.id = $id
@@ -245,9 +229,6 @@ async def get_node_by_id(node_id: str) -> Optional[Dict[str, Any]]:
 
 
 async def create_hypothesis_connection(hist_id: str, mod_id: str, hypothesis: str) -> str:
-    """
-    Create a relationship between historical observation and modern study
-    """
     rel_id = f"hyp-{uuid.uuid4()}"
     query = """
     MATCH (h:HistoricalObservation), (m:ModernStudy)
