@@ -26,6 +26,10 @@ NEO4J_URI = os.getenv("NEO4J_URI")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 
+logger.info(f"🌍 NEO4J_URI = {NEO4J_URI}")  # 🔥 Add this line
+logger.info(f"👤 NEO4J_USER = {NEO4J_USER}")
+logger.info(f"🔑 NEO4J_PASSWORD is set = {bool(NEO4J_PASSWORD)}")
+
 if not NEO4J_URI:
     logger.error("❌ NEO4J_URI is not set. Set it in environment.")
 if not NEO4J_PASSWORD:
@@ -66,7 +70,7 @@ async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
                 NEO4J_URI,
                 auth=(NEO4J_USER, NEO4J_PASSWORD),
                 encrypted=True,
-                trust=None,
+                trust_all_certificates=True,
                 connection_timeout=10,
                 max_connection_lifetime=3600,
                 max_connection_pool_size=10,
