@@ -33,7 +33,7 @@ if not NEO4J_PASSWORD:
     logger.error("❌ NEO4J_PASSWORD is not set. Set it in environment.")
 
 # Global driver instance
-driver = None
+
 
 
 async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
