@@ -69,8 +69,7 @@ async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
             driver = AsyncGraphDatabase.driver(
                 NEO4J_URI,
                 auth=(NEO4J_USER, NEO4J_PASSWORD),
-                encrypted=True,
-                trust_all_certificates=True,
+                trust="TRUST_ALL_CERTIFICATES",
                 connection_timeout=10,
                 max_connection_lifetime=3600,
                 max_connection_pool_size=10,
