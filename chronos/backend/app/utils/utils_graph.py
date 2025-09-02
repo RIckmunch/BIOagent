@@ -37,13 +37,13 @@ if not NEO4J_PASSWORD:
 
 
 # Global driver instance
-# Do NOT declare driver = None here
 async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
     """
-    Get Neo4j driver with retry logic and secure connection support.
+    Get Neo4j driver with retry logic.
+    Uses neo4j+s:// — so NO 'encrypted' or 'trust' flags.
     """
     global driver
-    driver = None  # Initialize
+    driver = None
 
     # Reuse healthy driver
     if 'driver' in globals() and driver is not None:
@@ -65,15 +65,17 @@ async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
 
             logger.info(f"🔌 Attempting Neo4j connection to {NEO4J_URI} (attempt {attempt})")
 
-            # ✅ CRITICAL FIX: Remove `trust` and `encrypted` when using neo4j+s://
+            # ✅ Correct: No 'encrypted', no 'trust' — handled by neo4j+s://
             driver = AsyncGraphDatabase.driver(
                 NEO4J_URI,
                 auth=(NEO4J_USER, NEO4J_PASSWORD),
+                # No SSL/trust flags — URI scheme handles it
                 connection_timeout=10,
                 max_connection_lifetime=3600,
                 max_connection_pool_size=10,
             )
 
+            # Test connection
             async with driver.session() as session:
                 await session.run("RETURN 1")
 
@@ -96,12 +98,10 @@ async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
 
 
 async def get_driver():
-    """Backward compatibility wrapper"""
     return await get_driver_with_retry()
 
 
 async def close_driver():
-    """Close the global driver instance safely"""
     global driver
     if 'driver' in globals() and driver is not None:
         try:
@@ -118,7 +118,6 @@ async def execute_query_with_retry(
     parameters: Dict[str, Any] = None,
     max_retries: int = 3
 ):
-    """Execute a Neo4j query with retry logic and automatic reconnection"""
     for attempt in range(1, max_retries + 1):
         try:
             db_driver = await get_driver_with_retry()
