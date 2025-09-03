@@ -18,8 +18,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Expose the port the app runs on
-EXPOSE 8000
+# Do NOT expose 8000 — Render doesn't require EXPOSE
+# EXPOSE 8000  ← Remove or comment out
 
-# Command to run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Use $PORT environment variable (Render assigns 10000 by default)
+CMD ["uvicorn", "chronos.backend.main:app", "--host", "0.0.0.0", "--port", "$PORT"]
