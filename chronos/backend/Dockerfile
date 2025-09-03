@@ -22,4 +22,4 @@ COPY . .
 # EXPOSE 8000  ← Remove or comment out
 
 # Use $PORT environment variable (Render assigns 10000 by default)
-CMD ["uvicorn", "chronos.backend.main:app", "--host", "0.0.0.0", "--port", "$PORT"]
+CMD ["/bin/sh", "-c", "uvicorn chronos.backend.main:app --host 0.0.0.0 --port $PORT"]
