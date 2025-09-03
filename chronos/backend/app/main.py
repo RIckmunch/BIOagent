@@ -47,9 +47,7 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint to verify all services are working"""
     try:
-        # Check Redis connection
         from app.utils.utils_pubmed import get_redis
         redis_client = await get_redis()
         await redis_client.ping()
@@ -59,7 +57,6 @@ async def health_check():
         redis_status = "unhealthy"
     
     try:
-        # Check Neo4j connection
         from app.utils.utils_graph import get_driver
         driver = await get_driver()
         async with driver.session() as session:
@@ -69,10 +66,18 @@ async def health_check():
         logger.warning(f"Neo4j health check failed: {str(e)}")
         neo4j_status = "unhealthy"
     
-    # Check environment variables
+    try:
+        from app.utils.utils_llm import GROQ_API_KEY, GROQ_API_URL
+        groq_status = "healthy" if GROQ_API_KEY and GROQ_API_URL else "unhealthy"
+        if groq_status == "unhealthy":
+            logger.warning("Groq API key or URL not configured")
+    except Exception as e:
+        logger.warning(f"Groq health check failed: {str(e)}")
+        groq_status = "unhealthy"
+    
     env_status = "healthy"
     missing_vars = []
-    required_vars = ["NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD", "REDIS_URL", "GROQ_API_KEY"]
+    required_vars = ["NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD", "REDIS_URL", "GROQ_API_KEY", "GROQ_API_URL"]
     for var in required_vars:
         if not os.getenv(var):
             missing_vars.append(var)
@@ -80,7 +85,8 @@ async def health_check():
     
     overall_status = "healthy" if all([
         redis_status == "healthy",
-        neo4j_status == "healthy", 
+        neo4j_status == "healthy",
+        groq_status == "healthy",
         env_status == "healthy"
     ]) else "unhealthy"
     
@@ -89,6 +95,7 @@ async def health_check():
         "services": {
             "redis": redis_status,
             "neo4j": neo4j_status,
+            "groq": groq_status,
             "environment": env_status
         },
         "missing_env_vars": missing_vars,
