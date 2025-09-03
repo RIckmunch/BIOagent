@@ -118,19 +118,26 @@ async def execute_query_with_retry(
     parameters: Dict[str, Any] = None,
     max_retries: int = 3
 ):
+    """
+    Execute a Neo4j query with retry logic.
+    Uses to_list() for async driver compatibility.
+    """
     for attempt in range(1, max_retries + 1):
         try:
             db_driver = await get_driver_with_retry()
             if db_driver is None:
                 raise ConnectionError("No Neo4j driver available")
+
             async with db_driver.session() as session:
                 result = await session.run(query, parameters or {})
-                # ✅ Fully consume result before session closes
-                records = await result.list()  # ← This consumes it
+                # ✅ CORRECT: Use to_list() for async driver
+                records = await result.to_list()  # ← This is the fix
                 return records
+
         except Exception as e:
             logger.warning(f"⚠️ Query execution attempt {attempt} failed: {str(e)}")
             await close_driver()
+
             if attempt < max_retries:
                 await asyncio.sleep(0.5 * attempt)
             else:
