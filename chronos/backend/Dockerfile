@@ -1,8 +1,7 @@
+# chronos/backend/Dockerfile
 FROM python:3.12-slim
 
-WORKDIR /app
-
-# Install system dependencies, including Tesseract OCR and build dependencies
+# Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     tesseract-ocr \
@@ -11,15 +10,20 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
+# Set working directory to /app
+WORKDIR /app
+
+# Copy requirements first (for better caching)
 COPY requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY . .
+# Copy the ENTIRE project root (so 'chronos/' is included)
+COPY . /app/
 
-# Do NOT expose 8000 — Render doesn't require EXPOSE
-# EXPOSE 8000  ← Remove or comment out
+# Add /app to PYTHONPATH so 'chronos' is importable
+ENV PYTHONPATH=/app
 
-# Use $PORT environment variable (Render assigns 10000 by default)
+# Use shell to expand $PORT
 CMD ["/bin/sh", "-c", "uvicorn chronos.backend.main:app --host 0.0.0.0 --port $PORT"]
