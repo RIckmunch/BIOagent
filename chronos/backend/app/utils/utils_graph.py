@@ -1,4 +1,4 @@
-# chronos/backend/utils/utils_graph.py
+# chronos/backend/app/utils/utils_graph.py
 
 from neo4j import AsyncGraphDatabase
 import os
@@ -35,7 +35,6 @@ if not NEO4J_URI:
 if not NEO4J_PASSWORD:
     logger.error("❌ NEO4J_PASSWORD is not set. Set it in environment.")
 
-
 # Global driver instance
 async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
     """
@@ -65,17 +64,14 @@ async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
 
             logger.info(f"🔌 Attempting Neo4j connection to {NEO4J_URI} (attempt {attempt})")
 
-            # ✅ Correct: No 'encrypted', no 'trust' — handled by neo4j+s://
             driver = AsyncGraphDatabase.driver(
                 NEO4J_URI,
                 auth=(NEO4J_USER, NEO4J_PASSWORD),
-                # No SSL/trust flags — URI scheme handles it
                 connection_timeout=10,
                 max_connection_lifetime=3600,
                 max_connection_pool_size=10,
             )
 
-            # Test connection
             async with driver.session() as session:
                 await session.run("RETURN 1")
 
@@ -96,10 +92,8 @@ async def get_driver_with_retry(max_retries: int = 3, retry_delay: float = 1.0):
 
     return None
 
-
 async def get_driver():
     return await get_driver_with_retry()
-
 
 async def close_driver():
     global driver
@@ -112,7 +106,6 @@ async def close_driver():
         finally:
             driver = None
 
-
 async def execute_query_with_retry(
     query: str,
     parameters: Dict[str, Any] = None,
@@ -120,7 +113,7 @@ async def execute_query_with_retry(
 ):
     """
     Execute a Neo4j query with retry logic.
-    Uses to_list() for async driver compatibility.
+    Uses async iteration to collect records.
     """
     for attempt in range(1, max_retries + 1):
         try:
@@ -130,8 +123,7 @@ async def execute_query_with_retry(
 
             async with db_driver.session() as session:
                 result = await session.run(query, parameters or {})
-                # ✅ CORRECT: Use to_list() for async driver
-                records = await result.to_list()  # ← This is the fix
+                records = [record async for record in result]  # Correct way to handle AsyncResult
                 return records
 
         except Exception as e:
@@ -158,21 +150,20 @@ async def create_historical_observation(text: str, source_id: str) -> str:
     RETURN h.id as id
     """
     try:
-        result = await execute_query_with_retry(query, {
+        records = await execute_query_with_retry(query, {
             "id": node_id,
             "text": text,
             "source_id": source_id
         })
-        record = await result.single()
-        if not record:
-            raise Exception("No ID returned from Neo4j")
+        if not records:
+            raise Exception("No records returned from Neo4j")
+        record = records[0]  # Get the first record
         returned_id = record["id"]
         logger.info(f"✅ Created historical observation node: {returned_id}")
         return returned_id
     except Exception as e:
         logger.error(f"❌ Error creating historical observation: {str(e)}")
         raise
-
 
 async def create_modern_study(article: Article) -> str:
     node_id = f"mod-{uuid.uuid4()}"
@@ -192,8 +183,7 @@ async def create_modern_study(article: Article) -> str:
     RETURN m.id as id
     """
     try:
-        # Execute and fetch immediately
-        result = await execute_query_with_retry(query, {
+        records = await execute_query_with_retry(query, {
             "id": node_id,
             "pmid": article.pmid,
             "title": article.title,
@@ -204,16 +194,15 @@ async def create_modern_study(article: Article) -> str:
             "doi": article.doi,
             "keywords": article.keywords
         })
-        record = await result.single()
-        if not record:
-            raise Exception("No ID returned from Neo4j")
-        returned_id = record["id"]  # ✅ Extract data before result is gone
+        if not records:
+            raise Exception("No records returned from Neo4j")
+        record = records[0]  # Get the first record
+        returned_id = record["id"]
         logger.info(f"✅ Created modern study node: {returned_id}")
         return returned_id
     except Exception as e:
         logger.error(f"❌ Error creating modern study: {str(e)}")
         raise
-
 
 async def get_node_by_id(node_id: str) -> Optional[Dict[str, Any]]:
     query = """
@@ -226,14 +215,11 @@ async def get_node_by_id(node_id: str) -> Optional[Dict[str, Any]]:
         if not records:
             logger.warning(f"🔍 Node not found: {node_id}")
             return None
-
         node = records[0]["n"]
         return dict(node.items())
-
     except Exception as e:
         logger.error(f"❌ Error retrieving node {node_id}: {str(e)}")
         raise
-
 
 async def create_hypothesis_connection(hist_id: str, mod_id: str, hypothesis: str) -> str:
     rel_id = f"hyp-{uuid.uuid4()}"
@@ -248,18 +234,18 @@ async def create_hypothesis_connection(hist_id: str, mod_id: str, hypothesis: st
     RETURN r.id as id
     """
     try:
-        result = await execute_query_with_retry(query, {
+        records = await execute_query_with_retry(query, {
             "hist_id": hist_id,
             "mod_id": mod_id,
             "rel_id": rel_id,
             "hypothesis": hypothesis
         })
-        record = await result.single()
-        if record:
-            logger.info(f"✅ Created hypothesis connection: {rel_id}")
-            return record["id"]
-        else:
-            raise Exception("No ID returned from Neo4j")
+        if not records:
+            raise Exception("No records returned from Neo4j")
+        record = records[0]
+        returned_id = record["id"]
+        logger.info(f"✅ Created hypothesis connection: {returned_id}")
+        return returned_id
     except Exception as e:
         logger.error(f"❌ Error creating hypothesis connection: {str(e)}")
         raise
