@@ -19,7 +19,7 @@ if not os.getenv("RENDER"):
 # Groq AI API settings
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_API_URL = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-8b-8192")  # Corrected model name
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")  # Corrected model name
 
 # Log configuration
 logger.info(f"GROQ_API_KEY is set: {bool(GROQ_API_KEY)}")
